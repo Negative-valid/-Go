@@ -27,7 +27,16 @@ type WeatherResponse struct {
 	Cod  int    `json:"cod"`
 }
 
-const APIKey = "TOKEN"
+var APIKey = loadToken()
+
+func loadToken() string {
+	data, _ := os.ReadFile("config.json")
+
+	var config map[string]string
+	json.Unmarshal(data, &config)
+
+	return config["access_token"]
+}
 
 func getCurrentWeather(city string) (*WeatherResponse, error) {
 	safeCity := url.QueryEscape(city)
