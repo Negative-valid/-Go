@@ -1,213 +1,88 @@
 package main
 
 import (
+	"bufio"
+	"encoding/json"
 	"fmt"
-	"math/rand"
+	"net/http"
+	"net/url"
+	"os"
+	"strings"
 	"time"
 )
 
-type Fighter struct {
-	name string
-
-	health int
+type WeatherResponse struct {
+	Weather []struct {
+		Description string `json:"description"`
+	} `json:"weather"`
+	Main struct {
+		Temp      float64 `json:"temp"`
+		FeelsLike float64 `json:"feels_like"`
+		Humidity  int     `json:"humidity"`
+	} `json:"main"`
+	Wind struct {
+		Speed float64 `json:"speed"`
+	} `json:"wind"`
+	Name string `json:"name"`
+	Cod  int    `json:"cod"`
 }
 
-type Drone struct {
-	id int
+const APIKey = "TOKEN"
 
-	health int
-}
+func getCurrentWeather(city string) (*WeatherResponse, error) {
+	safeCity := url.QueryEscape(city)
 
-func createFighters() []Fighter {
+	url := fmt.Sprintf("https://api.openweathermap.org/data/2.5/weather?q=%s&appid=%s&units=metric&lang=ua",
+		safeCity, APIKey)
 
-	fighters := make([]Fighter, 5)
+	client := http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Get(url)
+	if err != nil {
+		return nil, fmt.Errorf("помилка мережі: %v", err)
+	}
+	defer resp.Body.Close()
 
-	for i := 0; i < 5; i++ {
-
-		fighters[i].name = "Fighter_" + fmt.Sprint(i+1)
-
-		fighters[i].health = 100
-
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("API повернув помилку: %d (перевірте назву міста)", resp.StatusCode)
 	}
 
-	return fighters
-
-}
-
-func createDrones() []Drone {
-
-	drones := []Drone{}
-
-	for i := 1; i <= 4; i++ {
-
-		d := Drone{id: i, health: 70}
-
-		drones = append(drones, d)
-
+	var w WeatherResponse
+	if err := json.NewDecoder(resp.Body).Decode(&w); err != nil {
+		return nil, fmt.Errorf("помилка обробки JSON: %v", err)
 	}
 
-	return drones
-
-}
-
-func dealDamage(base int) int {
-
-	dmg := base + rand.Intn(5)
-
-	return int(dmg)
-
-}
-
-func attackFighter(d Fighter, dmg int) Fighter {
-
-	d.health = d.health - dmg
-
-	if d.health < 0 {
-		d.health = 0
-	}
-
-	return d
-
-}
-
-func attackDrone(dr Drone, dmg int) Drone {
-
-	if dr.health > 0 {
-
-		dr.health = dr.health - dmg
-
-		if dr.health < 0 {
-			dr.health = 0
-		}
-
-	}
-
-	return dr
-
-}
-
-func allDronesDestroyed(drones []Drone) bool {
-
-	for _, d := range drones {
-
-		if d.health > 0 {
-
-			return false
-
-		}
-
-	}
-
-	return true
-
-}
-
-func allFightersDead(fighters []Fighter) bool {
-
-	dead := 0
-
-	for i := 0; i < len(fighters); i++ {
-
-		if fighters[i].health <= 0 {
-
-			dead++
-
-		}
-
-	}
-
-	return dead == len(fighters)
-
+	return &w, nil
 }
 
 func main() {
+	reader := bufio.NewReader(os.Stdin)
 
-	rand.Seed(time.Now().UnixNano())
+	fmt.Print("Введіть назву міста (наприклад, Вінниця): ")
 
-	fighters := createFighters()
+	input, _ := reader.ReadString('\n')
+	city := strings.TrimSpace(input)
 
-	drones := createDrones()
-
-	round := 1
-
-	for {
-
-		fmt.Println("=== ROUND", round, "===")
-
-		for i := 0; i < len(fighters); i++ {
-
-			if fighters[i].health <= 0 {
-
-				continue
-
-			}
-
-			target := rand.Intn(len(drones))
-
-			if drones[target].health <= 0 {
-				for k := 0; k < len(drones); k++ {
-					if drones[k].health > 0 {
-						target = k
-						break
-					}
-				}
-			}
-
-			dmg := dealDamage(10)
-
-			drones[target] = attackDrone(drones[target], dmg)
-
-			fmt.Println(fighters[i].name, "hits Drone", drones[target].id, "for", dmg)
-
-		}
-
-		for j := 0; j < len(drones); j++ {
-
-			if drones[j].health <= 0 {
-				continue
-			}
-
-			target := rand.Intn(len(fighters))
-
-			if fighters[target].health <= 0 {
-				for k := 0; k < len(fighters); k++ {
-					if fighters[k].health > 0 {
-						target = k
-						break
-					}
-				}
-			}
-
-			dmg := dealDamage(5)
-
-			fighters[target] = attackFighter(fighters[target], dmg)
-
-			fmt.Println("Drone", drones[j].id, "hits", fighters[target].name, "for", dmg)
-
-		}
-
-		if allDronesDestroyed(drones) {
-
-			fmt.Println("Fighters win!")
-
-			break
-
-		}
-
-		if allFightersDead(fighters) {
-
-			fmt.Println("Drones win!")
-
-			break
-
-		}
-
-		round++
-
-		time.Sleep(100 * time.Millisecond)
-
+	if city == "" {
+		fmt.Println("Ви не ввели назву міста.")
+		return
 	}
 
-	fmt.Println("Battle finished in", round, "rounds.")
+	fmt.Println("Отримання даних...")
+	data, err := getCurrentWeather(city)
+	if err != nil {
+		fmt.Println("Помилка:", err)
+		return
+	}
 
+	desc := "невідомо"
+	if len(data.Weather) > 0 {
+		desc = data.Weather[0].Description
+	}
+
+	fmt.Printf("🌍 Погода в місті %s:\n", data.Name)
+	fmt.Printf("🌡  Температура:    %.1f°C\n", data.Main.Temp)
+	fmt.Printf("🤔 Відчувається як: %.1f°C\n", data.Main.FeelsLike)
+	fmt.Printf("💧 Вологість:      %d%%\n", data.Main.Humidity)
+	fmt.Printf("🌬  Вітер:          %.1f м/с\n", data.Wind.Speed)
+	fmt.Printf("📝 Опис:           %s\n", desc)
 }
